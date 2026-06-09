@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+build/
+dist/
+installer/payload/
+installer/*.sed
+installer/BatteryPowerOverlaySetup.spec
+installer/build/
+installer/dist/
+release/*.exe

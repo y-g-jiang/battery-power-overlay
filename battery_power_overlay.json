@@ -1,0 +1,46 @@
+{
+  "batteryinfo_path": "BatteryInfoView\\BatteryInfoView.exe",
+  "sample_interval_seconds": 1.0,
+  "subprocess_timeout_seconds": 6.0,
+  "opacity": 0.72,
+  "position": {
+    "x": 6,
+    "y": 6
+  },
+  "font": {
+    "family": "Segoe UI Semibold",
+    "size": 12
+  },
+  "background": "#050505",
+  "foreground": "#f4f4f4",
+  "discharge_foreground": "#ff5a5f",
+  "error_foreground": "#ffd37a",
+  "padding": {
+    "x": 8,
+    "y": 3
+  },
+  "graph": {
+    "enabled": true,
+    "width": 116,
+    "height": 30,
+    "history_seconds": 60,
+    "line": "#78d9ff",
+    "discharge_line": "#ff5a5f",
+    "baseline": "#353535"
+  },
+  "credit": {
+    "enabled": true,
+    "text": "2026 姜尧耕 y-g-jiang.github.io",
+    "proximity_pixels": 42,
+    "poll_ms": 250,
+    "font": {
+      "family": "Segoe UI",
+      "size": 8
+    },
+    "foreground": "#b8c2c7"
+  },
+  "register_startup_on_first_run": true,
+  "startup_registered": true,
+  "startup_command": "\"C:\\Users\\姜尧耕\\Documents\\New project 3\\battery_power_overlay_github\\battery_power_overlay.exe\"",
+  "show_state": false
+}
