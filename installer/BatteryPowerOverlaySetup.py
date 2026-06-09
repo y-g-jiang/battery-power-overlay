@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from tkinter import messagebox
 import tkinter as tk
@@ -99,7 +100,7 @@ def unregister_startup() -> None:
 def stop_existing() -> None:
     creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
     subprocess.run(
-        ["taskkill", "/IM", "battery_power_overlay.exe", "/F"],
+        ["taskkill", "/IM", "battery_power_overlay.exe", "/T", "/F"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         stdin=subprocess.DEVNULL,
@@ -108,10 +109,34 @@ def stop_existing() -> None:
     )
 
 
+def wait_for_file_release(path: Path, timeout_seconds: float = 8.0) -> None:
+    if not path.exists():
+        return
+
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        try:
+            with path.open("ab"):
+                return
+        except OSError:
+            time.sleep(0.2)
+
+
 def remove_previous_install(target: Path) -> None:
     safe_target = ensure_install_dir_is_safe(target)
-    if safe_target.exists():
-        shutil.rmtree(safe_target)
+    if not safe_target.exists():
+        return
+
+    wait_for_file_release(safe_target / "battery_power_overlay.exe")
+    last_error: Exception | None = None
+    for _attempt in range(24):
+        try:
+            shutil.rmtree(safe_target)
+            return
+        except OSError as exc:
+            last_error = exc
+            time.sleep(0.25)
+    raise RuntimeError(f"Could not remove previous installation:\n{safe_target}\n\n{last_error}")
 
 
 def uninstall_previous(target: Path) -> None:

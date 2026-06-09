@@ -1,6 +1,6 @@
-# Battery Power Overlay v0.3.0
+# Battery Power Overlay v0.3.1
 
-Transparent contrast update.
+Installer reliability update.
 
 Includes:
 
@@ -10,7 +10,8 @@ Includes:
 - battery percentage in the overlay's top-right corner
 - click-through style reapplied to all top-level and child window handles
 - silent successful installer; only installation failures show a dialog
-- installer removes the previous per-user installation before copying v0.3.0
+- installer removes the previous per-user installation before copying v0.3.1
+- installer waits and retries when the old overlay executable is still locked
 - 1 second BatteryInfoView polling
 - hover-near credit text: `2026 姜尧耕 y-g-jiang.github.io`
 - per-user startup registration

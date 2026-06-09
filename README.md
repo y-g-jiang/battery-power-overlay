@@ -22,8 +22,8 @@ it. The installer copies the app to:
 %LOCALAPPDATA%\BatteryPowerOverlay
 ```
 
-It also creates a current-user startup entry and launches the overlay.
-Before copying the new files, it removes the previous per-user installation.
+It also removes the previous per-user installation, creates a current-user
+startup entry, and launches the overlay.
 
 ## Source Run
 
