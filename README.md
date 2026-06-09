@@ -9,6 +9,8 @@ Highlights:
 - semi-transparent always-on-top overlay
 - click-through top-level and child windows
 - red text/line while discharging
+- battery percentage in the overlay's top-right corner
+- dodges downward by one overlay height when the pointer reaches it
 - hover-near credit text: `2026 姜尧耕 y-g-jiang.github.io`
 - per-user startup registration
 

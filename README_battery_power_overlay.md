@@ -13,6 +13,10 @@ whole-machine battery charge or discharge power in the top-left corner.
   sample arrives.
 - Shows the absolute wattage value; discharging is indicated in red to save
   space.
+- Shows the BatteryInfoView current capacity percentage at the overlay's
+  top-right corner.
+- Moves downward by one overlay height when the pointer reaches it, while
+  staying fully click-through.
 - Shows `2026 姜尧耕 y-g-jiang.github.io` next to the overlay when the mouse is
   nearby. The overlay remains fully click-through.
 - Registers the packaged exe for current-user startup on first normal launch.
@@ -61,6 +65,11 @@ Example:
     "discharge_line": "#ff5a5f",
     "baseline": "#353535"
   },
+  "percent": {
+    "enabled": true,
+    "font": { "family": "Segoe UI", "size": 9 },
+    "foreground": "#d8dde0"
+  },
   "credit": {
     "enabled": true,
     "text": "2026 姜尧耕 y-g-jiang.github.io",
@@ -68,6 +77,12 @@ Example:
     "poll_ms": 250,
     "font": { "family": "Segoe UI", "size": 8 },
     "foreground": "#b8c2c7"
+  },
+  "dodge": {
+    "enabled": true,
+    "poll_ms": 80,
+    "gap_pixels": 4,
+    "return_margin_pixels": 42
   },
   "register_startup_on_first_run": true,
   "startup_registered": false,
@@ -139,7 +154,6 @@ battery_power_overlay_github\
   README_battery_power_overlay.md
   BatteryInfoView\
     BatteryInfoView.exe
-    BatteryInfoView.cfg
     BatteryInfoView_lng.ini
 ```
 

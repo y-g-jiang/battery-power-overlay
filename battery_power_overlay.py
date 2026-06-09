@@ -58,6 +58,11 @@ DEFAULT_CONFIG = {
         "discharge_line": "#ff5a5f",
         "baseline": "#353535",
     },
+    "percent": {
+        "enabled": True,
+        "font": {"family": "Segoe UI", "size": 9},
+        "foreground": "#d8dde0",
+    },
     "credit": {
         "enabled": True,
         "text": "2026 \u59dc\u5c27\u8015 y-g-jiang.github.io",
@@ -65,6 +70,12 @@ DEFAULT_CONFIG = {
         "poll_ms": 250,
         "font": {"family": "Segoe UI", "size": 8},
         "foreground": "#b8c2c7",
+    },
+    "dodge": {
+        "enabled": True,
+        "poll_ms": 80,
+        "gap_pixels": 4,
+        "return_margin_pixels": 42,
     },
     "register_startup_on_first_run": True,
     "startup_registered": False,
@@ -116,11 +127,44 @@ STATE_KEYS = (
     "电池状态",
     "電池狀態",
 )
+PERCENT_KEYS = (
+    "current capacity (in %)",
+    "current capacity (%)",
+    "current capacity percent",
+    "battery percentage",
+    "battery percent",
+    "battery level",
+    "remaining capacity (%)",
+    "\u5f53\u524d\u5bb9\u91cf (%)",
+    "\u7576\u524d\u5bb9\u91cf (%)",
+    "\u5f53\u524d\u5bb9\u91cf(\u0025)",
+    "\u7576\u524d\u5bb9\u91cf(\u0025)",
+    "\u7535\u91cf\u767e\u5206\u6bd4",
+    "\u96fb\u91cf\u767e\u5206\u6bd4",
+)
+PERCENT_EXCLUDE_KEYS = (
+    "value",
+    "health",
+    "wear",
+    "full",
+    "design",
+    "low",
+    "\u503c",
+    "\u5065\u5eb7",
+    "\u635f\u8017",
+    "\u5b8c\u5168",
+    "\u8bbe\u8ba1",
+    "\u8a2d\u8a08",
+    "\u4f4e\u7535\u91cf",
+    "\u4f4e\u96fb\u91cf",
+)
+PERCENT_MARKERS = ("%", "percent", "percentage", "\u767e\u5206\u6bd4")
 
 
 @dataclass(frozen=True)
 class PowerSample:
     watts: float | None
+    percent: float | None = None
     state: str = ""
     error: str = ""
 
@@ -328,7 +372,10 @@ def resolve_batteryinfo_path(
 
 def read_text_auto(path: Path) -> str:
     data = path.read_bytes()
-    for encoding in ("utf-16", "utf-8-sig", "mbcs", "latin-1"):
+    encodings = ["utf-8-sig", "gb18030", "mbcs", "latin-1"]
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        encodings.insert(0, "utf-16")
+    for encoding in encodings:
         try:
             return data.decode(encoding)
         except UnicodeDecodeError:
@@ -346,6 +393,12 @@ def normalize_key(value: str) -> str:
 def key_matches(key: str, choices: tuple[str, ...]) -> bool:
     key_norm = normalize_key(key)
     return any(normalize_key(choice) in key_norm for choice in choices)
+
+
+def key_matches_percent(key: str) -> bool:
+    if key_matches(key, PERCENT_EXCLUDE_KEYS):
+        return False
+    return key_matches(key, PERCENT_KEYS)
 
 
 def parse_number(value: str) -> float | None:
@@ -420,6 +473,23 @@ def parse_power_watts(value: str, require_unit: bool = False) -> float | None:
     return number
 
 
+def parse_percent(value: str, require_marker: bool = False) -> float | None:
+    number = parse_number(value)
+    if number is None:
+        return None
+    if require_marker and not contains_any(value, PERCENT_MARKERS):
+        return None
+    if not 0 <= number <= 100:
+        return None
+    return number
+
+
+def row_value(row: list[str]) -> str:
+    if len(row) < 2:
+        return ""
+    return next((cell for cell in row[1:] if cell.strip()), ",".join(row[1:]))
+
+
 def parse_batteryinfo_csv(text: str) -> PowerSample:
     rows = list(csv.reader(text.splitlines()))
     rows = [[cell.strip() for cell in row] for row in rows if any(cell.strip() for cell in row)]
@@ -428,47 +498,55 @@ def parse_batteryinfo_csv(text: str) -> PowerSample:
 
     state = ""
     watts: float | None = None
+    percent: float | None = None
 
     for row in rows:
         if len(row) < 2:
             continue
-        key, value = row[0], ",".join(row[1:])
+        key, value = row[0], row_value(row)
         if key_matches(key, STATE_KEYS):
             state = value
         if key_matches(key, RATE_KEYS):
             watts = parse_power_watts(value)
+        if percent is None and key_matches_percent(key):
+            percent = parse_percent(value)
 
     if watts is None:
         for row in rows:
             if len(row) < 2:
                 continue
-            value = ",".join(row[1:])
+            value = row_value(row)
             watts = parse_power_watts(value, require_unit=True)
             if watts is not None:
                 break
 
-    if watts is None and len(rows) >= 2:
+    if (watts is None or percent is None) and len(rows) >= 2:
         header = rows[0]
         rate_index = next(
             (index for index, name in enumerate(header) if key_matches(name, RATE_KEYS)),
+            None,
+        )
+        percent_index = next(
+            (index for index, name in enumerate(header) if key_matches_percent(name)),
             None,
         )
         state_index = next(
             (index for index, name in enumerate(header) if key_matches(name, STATE_KEYS)),
             None,
         )
-        if rate_index is not None:
-            for row in rows[1:]:
-                if rate_index < len(row):
-                    watts = parse_power_watts(row[rate_index])
-                    if watts is not None:
-                        if state_index is not None and state_index < len(row):
-                            state = row[state_index]
-                        break
+        for row in rows[1:]:
+            if watts is None and rate_index is not None and rate_index < len(row):
+                watts = parse_power_watts(row[rate_index])
+            if percent is None and percent_index is not None and percent_index < len(row):
+                percent = parse_percent(row[percent_index])
+            if state_index is not None and state_index < len(row) and not state:
+                state = row[state_index]
+            if watts is not None and (percent is not None or percent_index is None):
+                break
 
     if watts is None:
-        return PowerSample(None, state=state, error="rate missing")
-    return PowerSample(watts, state=state)
+        return PowerSample(None, percent=percent, state=state, error="rate missing")
+    return PowerSample(watts, percent=percent, state=state)
 
 
 class BatteryInfoReader:
@@ -769,6 +847,7 @@ class PowerOverlay:
         self.samples: queue.Queue[PowerSample] = queue.Queue(maxsize=3)
         self.stop_event = threading.Event()
         self.last_text = ""
+        self.last_percent_text = ""
         self.last_error_state = False
         self.last_discharging = False
         self.win32 = Win32OverlayStyle() if os.name == "nt" else None
@@ -782,12 +861,16 @@ class PowerOverlay:
         position_config = config.get("position", {})
         padding_config = config.get("padding", {})
         graph_config = config.get("graph", {})
+        percent_config = config.get("percent", {})
         credit_config = config.get("credit", {})
+        dodge_config = config.get("dodge", {})
         assert isinstance(font_config, dict)
         assert isinstance(position_config, dict)
         assert isinstance(padding_config, dict)
         assert isinstance(graph_config, dict)
+        assert isinstance(percent_config, dict)
         assert isinstance(credit_config, dict)
+        assert isinstance(dodge_config, dict)
 
         family = str(font_config.get("family", DEFAULT_CONFIG["font"]["family"]))
         size = as_int(font_config.get("size"), 12, 7, 32)
@@ -814,6 +897,17 @@ class PowerOverlay:
         self.graph_discharge_line = str(graph_config.get("discharge_line", graph_defaults["discharge_line"]))
         self.graph_baseline = str(graph_config.get("baseline", graph_defaults["baseline"]))
 
+        percent_defaults = DEFAULT_CONFIG["percent"]
+        assert isinstance(percent_defaults, dict)
+        percent_font = percent_config.get("font", {})
+        percent_default_font = percent_defaults["font"]
+        assert isinstance(percent_font, dict)
+        assert isinstance(percent_default_font, dict)
+        self.percent_enabled = bool(percent_config.get("enabled", percent_defaults["enabled"]))
+        self.percent_family = str(percent_font.get("family", percent_default_font["family"]))
+        self.percent_size = as_int(percent_font.get("size"), int(percent_default_font["size"]), 6, 24)
+        self.percent_foreground = str(percent_config.get("foreground", percent_defaults["foreground"]))
+
         credit_defaults = DEFAULT_CONFIG["credit"]
         assert isinstance(credit_defaults, dict)
         credit_font = credit_config.get("font", {})
@@ -831,13 +925,30 @@ class PowerOverlay:
         self.credit_poll_ms = as_int(credit_config.get("poll_ms"), int(credit_defaults["poll_ms"]), 100, 2000)
         self.credit_visible = False
 
+        dodge_defaults = DEFAULT_CONFIG["dodge"]
+        assert isinstance(dodge_defaults, dict)
+        self.dodge_enabled = bool(dodge_config.get("enabled", dodge_defaults["enabled"]))
+        self.dodge_poll_ms = as_int(dodge_config.get("poll_ms"), int(dodge_defaults["poll_ms"]), 50, 1000)
+        self.dodge_gap = as_int(dodge_config.get("gap_pixels"), int(dodge_defaults["gap_pixels"]), 0, 80)
+        self.dodge_return_margin = as_int(
+            dodge_config.get("return_margin_pixels"),
+            int(dodge_defaults["return_margin_pixels"]),
+            0,
+            240,
+        )
+        self.dodged = False
+
         self.container = tk.Frame(self.root, bg=bg, bd=0, highlightthickness=0)
         self.container.pack()
         self.main_panel = tk.Frame(self.container, bg=bg, bd=0, highlightthickness=0)
         self.main_panel.pack(side="left", anchor="nw")
 
+        self.header = tk.Frame(self.main_panel, bg=bg, bd=0, highlightthickness=0)
+        self.header.pack(anchor="w", fill="x")
+        self.header.grid_columnconfigure(0, weight=1)
+
         self.label = tk.Label(
-            self.main_panel,
+            self.header,
             text="-- W",
             font=(family, size),
             bg=bg,
@@ -846,7 +957,21 @@ class PowerOverlay:
             padx=padx,
             pady=pady,
         )
-        self.label.pack(anchor="w")
+        self.label.grid(row=0, column=0, sticky="w")
+
+        self.percent_label: tk.Label | None = None
+        if self.percent_enabled:
+            self.percent_label = tk.Label(
+                self.header,
+                text="--%",
+                font=(self.percent_family, self.percent_size),
+                bg=bg,
+                fg=self.percent_foreground,
+                bd=0,
+                padx=padx,
+                pady=pady,
+            )
+            self.percent_label.grid(row=0, column=1, sticky="e")
 
         self.graph_canvas: tk.Canvas | None = None
         if self.graph_enabled:
@@ -878,15 +1003,30 @@ class PowerOverlay:
                 pady=0,
             )
 
-        x = as_int(position_config.get("x"), 6, -10000, 10000)
-        y = as_int(position_config.get("y"), 6, -10000, 10000)
-        self.root.geometry(f"+{x}+{y}")
+        self.home_x = as_int(position_config.get("x"), 6, -10000, 10000)
+        self.home_y = as_int(position_config.get("y"), 6, -10000, 10000)
+        self.current_x = self.home_x
+        self.current_y = self.home_y
+        self.root.geometry(self.geometry_at(self.current_x, self.current_y))
         self.root.update_idletasks()
         self.apply_window_style()
 
         self.poller = Poller(reader, interval, self.samples, self.stop_event)
 
         self.root.protocol("WM_DELETE_WINDOW", self.close)
+
+    @staticmethod
+    def geometry_at(x: int, y: int) -> str:
+        return f"{x:+d}{y:+d}"
+
+    def move_window(self, x: int, y: int) -> None:
+        if x == self.current_x and y == self.current_y:
+            return
+        self.current_x = x
+        self.current_y = y
+        self.root.geometry(self.geometry_at(x, y))
+        self.root.update_idletasks()
+        self.apply_window_style()
 
     def apply_window_style(self) -> None:
         opacity = as_float(self.config.get("opacity"), 0.72, 0.15, 1.0)
@@ -895,6 +1035,11 @@ class PowerOverlay:
             self.win32.apply_tree(hwnd, opacity, self.click_through)
         else:
             self.root.attributes("-alpha", opacity)
+
+    def prime_window_style(self, passes: int = 8) -> None:
+        self.apply_window_style()
+        if passes > 1:
+            self.root.after(80, self.prime_window_style, passes - 1)
 
     def format_sample(self, sample: PowerSample) -> tuple[str, bool, bool]:
         show_state = bool(self.config.get("show_state", False))
@@ -912,6 +1057,12 @@ class PowerOverlay:
             text = f"{text} {sample.state[:10]}"
         return text, False, sample.watts < 0
 
+    @staticmethod
+    def format_percent(percent: float | None) -> str:
+        if percent is None:
+            return "--%"
+        return f"{percent:.0f}%"
+
     def set_text(self, text: str, is_error: bool, is_discharging: bool) -> None:
         if text == self.last_text and is_error == self.last_error_state and is_discharging == self.last_discharging:
             return
@@ -925,6 +1076,16 @@ class PowerOverlay:
         else:
             fg_key = "foreground"
         self.label.configure(text=text, fg=str(self.config.get(fg_key, DEFAULT_CONFIG[fg_key])))
+        self.root.update_idletasks()
+
+    def set_percent(self, percent: float | None) -> None:
+        if self.percent_label is None:
+            return
+        text = self.format_percent(percent)
+        if text == self.last_percent_text:
+            return
+        self.last_percent_text = text
+        self.percent_label.configure(text=text)
         self.root.update_idletasks()
 
     def add_graph_sample(self, sample: PowerSample) -> None:
@@ -994,25 +1155,102 @@ class PowerOverlay:
         self.root.update_idletasks()
         self.apply_window_style()
 
-    def pointer_is_near_overlay(self) -> bool:
+    @staticmethod
+    def point_in_rect(px: int, py: int, x: int, y: int, width: int, height: int, margin: int = 0) -> bool:
+        return x - margin <= px <= x + width + margin and y - margin <= py <= y + height + margin
+
+    def pointer_position(self) -> tuple[int, int] | None:
         pointer_x = self.root.winfo_pointerx()
         pointer_y = self.root.winfo_pointery()
         if pointer_x < 0 or pointer_y < 0:
+            return None
+        return pointer_x, pointer_y
+
+    def pointer_is_near_overlay(self) -> bool:
+        pointer = self.pointer_position()
+        if pointer is None:
             return False
 
-        x = self.root.winfo_rootx()
-        y = self.root.winfo_rooty()
+        pointer_x, pointer_y = pointer
         width = self.root.winfo_width()
         height = self.root.winfo_height()
         margin = self.credit_proximity
-        return (
-            x - margin <= pointer_x <= x + width + margin
-            and y - margin <= pointer_y <= y + height + margin
+        near_current = self.point_in_rect(
+            pointer_x,
+            pointer_y,
+            self.current_x,
+            self.current_y,
+            width,
+            height,
+            margin,
         )
+        near_home = self.dodged and self.point_in_rect(
+            pointer_x,
+            pointer_y,
+            self.home_x,
+            self.home_y,
+            width,
+            height,
+            margin,
+        )
+        return near_current or near_home
+
+    def set_dodged(self, dodged: bool) -> None:
+        if dodged == self.dodged:
+            return
+
+        self.dodged = dodged
+        height = max(1, self.root.winfo_height())
+        if dodged:
+            target_y = self.home_y + height + self.dodge_gap
+            screen_height = max(height, self.root.winfo_screenheight())
+            target_y = min(target_y, max(0, screen_height - height))
+        else:
+            target_y = self.home_y
+        self.move_window(self.home_x, target_y)
+
+    def update_dodge(self) -> None:
+        if not self.dodge_enabled:
+            return
+
+        pointer = self.pointer_position()
+        if pointer is None:
+            return
+
+        pointer_x, pointer_y = pointer
+        width = self.root.winfo_width()
+        height = self.root.winfo_height()
+        on_current = self.point_in_rect(pointer_x, pointer_y, self.current_x, self.current_y, width, height)
+        if on_current and not self.dodged:
+            self.set_dodged(True)
+            return
+
+        if self.dodged:
+            margin = self.dodge_return_margin
+            keep_dodged = self.point_in_rect(
+                pointer_x,
+                pointer_y,
+                self.home_x,
+                self.home_y,
+                width,
+                height,
+                margin,
+            ) or self.point_in_rect(
+                pointer_x,
+                pointer_y,
+                self.current_x,
+                self.current_y,
+                width,
+                height,
+                margin,
+            )
+            if not keep_dodged:
+                self.set_dodged(False)
 
     def poll_pointer(self) -> None:
+        self.update_dodge()
         self.set_credit_visible(self.pointer_is_near_overlay())
-        self.root.after(self.credit_poll_ms, self.poll_pointer)
+        self.root.after(min(self.credit_poll_ms, self.dodge_poll_ms), self.poll_pointer)
 
     def pump_samples(self) -> None:
         latest: PowerSample | None = None
@@ -1024,6 +1262,7 @@ class PowerOverlay:
         if latest is not None:
             text, is_error, is_discharging = self.format_sample(latest)
             self.set_text(text, is_error, is_discharging)
+            self.set_percent(latest.percent)
             self.add_graph_sample(latest)
         self.root.after(1000, self.pump_samples)
 
@@ -1042,8 +1281,9 @@ class PowerOverlay:
 
     def run(self) -> None:
         self.poller.start()
+        self.root.after(0, self.prime_window_style)
         self.root.after(1000, self.pump_samples)
-        self.root.after(self.credit_poll_ms, self.poll_pointer)
+        self.root.after(min(self.credit_poll_ms, self.dodge_poll_ms), self.poll_pointer)
         self.root.after(1000, self.refresh_topmost)
         self.root.mainloop()
         self.stop_event.set()

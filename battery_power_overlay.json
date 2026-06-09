@@ -28,6 +28,14 @@
     "discharge_line": "#ff5a5f",
     "baseline": "#353535"
   },
+  "percent": {
+    "enabled": true,
+    "font": {
+      "family": "Segoe UI",
+      "size": 9
+    },
+    "foreground": "#d8dde0"
+  },
   "credit": {
     "enabled": true,
     "text": "2026 姜尧耕 y-g-jiang.github.io",
@@ -39,8 +47,14 @@
     },
     "foreground": "#b8c2c7"
   },
+  "dodge": {
+    "enabled": true,
+    "poll_ms": 80,
+    "gap_pixels": 4,
+    "return_margin_pixels": 42
+  },
   "register_startup_on_first_run": true,
-  "startup_registered": true,
-  "startup_command": "\"C:\\Users\\姜尧耕\\Documents\\New project 3\\battery_power_overlay_github\\battery_power_overlay.exe\"",
+  "startup_registered": false,
+  "startup_command": "",
   "show_state": false
 }
