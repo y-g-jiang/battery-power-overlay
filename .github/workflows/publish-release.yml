@@ -44,6 +44,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if (gh release view v0.1.0 --repo $env:GITHUB_REPOSITORY *> $null) {
+            gh release edit v0.1.0 --repo $env:GITHUB_REPOSITORY --title "Battery Power Overlay v0.1.0" --notes-file .\RELEASE_NOTES.md
             gh release upload v0.1.0 .\release\BatteryPowerOverlaySetup.exe --repo $env:GITHUB_REPOSITORY --clobber
           } else {
             gh release create v0.1.0 .\release\BatteryPowerOverlaySetup.exe --repo $env:GITHUB_REPOSITORY --target main --title "Battery Power Overlay v0.1.0" --notes-file .\RELEASE_NOTES.md
