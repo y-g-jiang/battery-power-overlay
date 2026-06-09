@@ -46,18 +46,18 @@ jobs:
 
       - name: Build installer
         shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File .\installer\build_installer.ps1 -Version v0.3.1
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File .\installer\build_installer.ps1 -Version v0.3.2
 
       - name: Create or update GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view v0.3.1 --repo $env:GITHUB_REPOSITORY *> $null
+          gh release view v0.3.2 --repo $env:GITHUB_REPOSITORY *> $null
           $releaseExists = ($LASTEXITCODE -eq 0)
           if ($releaseExists) {
-            gh release edit v0.3.1 --repo $env:GITHUB_REPOSITORY --title "Battery Power Overlay v0.3.1" --notes-file .\RELEASE_NOTES.md
-            gh release upload v0.3.1 .\release\BatteryPowerOverlaySetup.exe --repo $env:GITHUB_REPOSITORY --clobber
+            gh release edit v0.3.2 --repo $env:GITHUB_REPOSITORY --title "Battery Power Overlay v0.3.2" --notes-file .\RELEASE_NOTES.md
+            gh release upload v0.3.2 .\release\BatteryPowerOverlaySetup.exe --repo $env:GITHUB_REPOSITORY --clobber
           } else {
-            gh release create v0.3.1 .\release\BatteryPowerOverlaySetup.exe --repo $env:GITHUB_REPOSITORY --target main --title "Battery Power Overlay v0.3.1" --notes-file .\RELEASE_NOTES.md
+            gh release create v0.3.2 .\release\BatteryPowerOverlaySetup.exe --repo $env:GITHUB_REPOSITORY --target main --title "Battery Power Overlay v0.3.2" --notes-file .\RELEASE_NOTES.md
           }

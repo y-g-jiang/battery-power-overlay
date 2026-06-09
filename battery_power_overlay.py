@@ -50,6 +50,11 @@ DEFAULT_CONFIG = {
     "discharge_foreground": "#ff5a5f",
     "error_foreground": "#ffd37a",
     "padding": {"x": 8, "y": 3},
+    "watt_mask": {
+        "background": "#050505",
+        "foreground": "#ffffff",
+        "hide_proximity_pixels": 96,
+    },
     "graph": {
         "enabled": True,
         "width": 116,
@@ -933,6 +938,7 @@ class PowerOverlay:
         font_config = config.get("font", {})
         position_config = config.get("position", {})
         padding_config = config.get("padding", {})
+        watt_mask_config = config.get("watt_mask", {})
         graph_config = config.get("graph", {})
         percent_config = config.get("percent", {})
         credit_config = config.get("credit", {})
@@ -940,6 +946,7 @@ class PowerOverlay:
         assert isinstance(font_config, dict)
         assert isinstance(position_config, dict)
         assert isinstance(padding_config, dict)
+        assert isinstance(watt_mask_config, dict)
         assert isinstance(graph_config, dict)
         assert isinstance(percent_config, dict)
         assert isinstance(credit_config, dict)
@@ -959,6 +966,18 @@ class PowerOverlay:
                 self.root.attributes("-transparentcolor", self.transparent_color)
             except tk.TclError:
                 pass
+
+        watt_mask_defaults = DEFAULT_CONFIG["watt_mask"]
+        assert isinstance(watt_mask_defaults, dict)
+        self.watt_mask_background = str(watt_mask_config.get("background", watt_mask_defaults["background"]))
+        self.watt_mask_foreground = str(watt_mask_config.get("foreground", watt_mask_defaults["foreground"]))
+        self.watt_hide_proximity = as_int(
+            watt_mask_config.get("hide_proximity_pixels"),
+            int(watt_mask_defaults["hide_proximity_pixels"]),
+            0,
+            320,
+        )
+        self.watt_visible = True
 
         graph_defaults = DEFAULT_CONFIG["graph"]
         assert isinstance(graph_defaults, dict)
@@ -1039,17 +1058,25 @@ class PowerOverlay:
         self.header.pack(anchor="w", fill="x")
         self.header.grid_columnconfigure(0, weight=1)
 
-        self.label = tk.Label(
+        self.watt_panel = tk.Frame(
             self.header,
+            bg=self.watt_mask_background,
+            bd=0,
+            highlightthickness=0,
+        )
+        self.watt_panel.grid(row=0, column=0, sticky="w")
+
+        self.label = tk.Label(
+            self.watt_panel,
             text="-- W",
             font=(family, size),
-            bg=bg,
-            fg=fg,
+            bg=self.watt_mask_background,
+            fg=self.watt_mask_foreground,
             bd=0,
             padx=padx,
             pady=pady,
         )
-        self.label.grid(row=0, column=0, sticky="w")
+        self.label.pack()
 
         self.percent_label: tk.Label | None = None
         if self.percent_enabled:
@@ -1167,8 +1194,8 @@ class PowerOverlay:
         return self.dynamic_foreground
 
     def set_foreground_colors(self) -> None:
-        fg = self.foreground_for_current_state()
-        self.label.configure(fg=fg)
+        self.label.configure(fg=self.watt_mask_foreground, bg=self.watt_mask_background)
+        self.watt_panel.configure(bg=self.watt_mask_background)
         if self.percent_label is not None:
             self.percent_label.configure(fg=self.dynamic_foreground)
         if self.credit_label is not None:
@@ -1277,6 +1304,9 @@ class PowerOverlay:
         return pointer_x, pointer_y
 
     def pointer_is_near_overlay(self) -> bool:
+        return self.pointer_is_near_rect(self.credit_proximity)
+
+    def pointer_is_near_rect(self, margin: int) -> bool:
         pointer = self.pointer_position()
         if pointer is None:
             return False
@@ -1284,7 +1314,6 @@ class PowerOverlay:
         pointer_x, pointer_y = pointer
         width = self.root.winfo_width()
         height = self.root.winfo_height()
-        margin = self.credit_proximity
         return self.point_in_rect(
             pointer_x,
             pointer_y,
@@ -1294,6 +1323,20 @@ class PowerOverlay:
             height,
             margin,
         )
+
+    def set_watt_visible(self, visible: bool) -> None:
+        if visible == self.watt_visible:
+            return
+        self.watt_visible = visible
+        if visible:
+            self.watt_panel.grid()
+        else:
+            self.watt_panel.grid_remove()
+        self.root.update_idletasks()
+        self.apply_window_style()
+
+    def update_watt_visibility(self) -> None:
+        self.set_watt_visible(not self.pointer_is_near_rect(self.watt_hide_proximity))
 
     def update_adaptive_contrast(self) -> None:
         if not self.adaptive_enabled or self.screen_sampler is None:
@@ -1325,6 +1368,7 @@ class PowerOverlay:
 
     def poll_pointer(self) -> None:
         self.update_adaptive_contrast()
+        self.update_watt_visibility()
         self.set_credit_visible(self.pointer_is_near_overlay())
         self.root.after(self.visual_poll_interval(), self.poll_pointer)
 

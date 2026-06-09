@@ -1,16 +1,17 @@
-# Battery Power Overlay v0.3.1
+# Battery Power Overlay v0.3.2
 
-Installer reliability update.
+Watt mask update.
 
 Includes:
 
 - no dodge behavior
-- no gray/black background mask behind the overlay
-- adaptive inverse-color text and sparkline sampled from the background
+- small white-on-dark mask behind the wattage value
+- wattage mask hides when the pointer is near the overlay
+- other text and the sparkline keep adaptive inverse-color rendering
 - battery percentage in the overlay's top-right corner
 - click-through style reapplied to all top-level and child window handles
 - silent successful installer; only installation failures show a dialog
-- installer removes the previous per-user installation before copying v0.3.1
+- installer removes the previous per-user installation before copying v0.3.2
 - installer waits and retries when the old overlay executable is still locked
 - 1 second BatteryInfoView polling
 - hover-near credit text: `2026 姜尧耕 y-g-jiang.github.io`

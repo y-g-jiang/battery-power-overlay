@@ -20,6 +20,11 @@
     "x": 8,
     "y": 3
   },
+  "watt_mask": {
+    "background": "#050505",
+    "foreground": "#ffffff",
+    "hide_proximity_pixels": 96
+  },
   "graph": {
     "enabled": true,
     "width": 116,

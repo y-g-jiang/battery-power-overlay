@@ -11,8 +11,8 @@ whole-machine battery charge or discharge power in the top-left corner.
   no-activate, tool-window, and click-through behavior.
 - Samples once per second and redraws a tiny wattage sparkline only when a new
   sample arrives.
-- Shows the absolute wattage value with adaptive inverse-color text sampled
-  from the background behind the overlay.
+- Shows the absolute wattage value on a small white-on-dark mask, and hides
+  that wattage mask when the pointer is nearby.
 - Shows the BatteryInfoView current capacity percentage at the overlay's
   top-right corner.
 - Shows `2026 姜尧耕 y-g-jiang.github.io` next to the overlay when the mouse is
@@ -58,6 +58,11 @@ Example:
   "discharge_foreground": "#ff5a5f",
   "error_foreground": "#ffd37a",
   "padding": { "x": 8, "y": 3 },
+  "watt_mask": {
+    "background": "#050505",
+    "foreground": "#ffffff",
+    "hide_proximity_pixels": 96
+  },
   "graph": {
     "enabled": true,
     "width": 116,
