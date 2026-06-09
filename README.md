@@ -8,7 +8,7 @@ Highlights:
 - 1 second polling through BatteryInfoView `/scomma`
 - transparent always-on-top overlay
 - click-through top-level and child windows
-- masked white wattage value, hidden when the pointer is nearby
+- lightly masked white wattage value, hidden when the pointer is nearby
 - adaptive inverse-color text and sparkline sampled from the background
 - battery percentage in the overlay's top-right corner
 - hover-near credit text: `2026 姜尧耕 y-g-jiang.github.io`

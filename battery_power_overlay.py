@@ -53,6 +53,7 @@ DEFAULT_CONFIG = {
     "watt_mask": {
         "background": "#050505",
         "foreground": "#ffffff",
+        "background_opacity": 0.62,
         "hide_proximity_pixels": 96,
     },
     "graph": {
@@ -971,6 +972,12 @@ class PowerOverlay:
         assert isinstance(watt_mask_defaults, dict)
         self.watt_mask_background = str(watt_mask_config.get("background", watt_mask_defaults["background"]))
         self.watt_mask_foreground = str(watt_mask_config.get("foreground", watt_mask_defaults["foreground"]))
+        self.watt_mask_opacity = as_float(
+            watt_mask_config.get("background_opacity"),
+            float(watt_mask_defaults["background_opacity"]),
+            0.0,
+            1.0,
+        )
         self.watt_hide_proximity = as_int(
             watt_mask_config.get("hide_proximity_pixels"),
             int(watt_mask_defaults["hide_proximity_pixels"]),
@@ -1128,6 +1135,7 @@ class PowerOverlay:
         self.current_y = self.home_y
         self.root.geometry(self.geometry_at(self.current_x, self.current_y))
         self.root.update_idletasks()
+        self.set_watt_mask_background()
         self.apply_window_style()
 
         self.poller = Poller(reader, interval, self.samples, self.stop_event)
@@ -1187,6 +1195,24 @@ class PowerOverlay:
         return f"#{max(0, min(255, red)):02x}{max(0, min(255, green)):02x}{max(0, min(255, blue)):02x}"
 
     @staticmethod
+    def parse_hex_color(value: str) -> tuple[int, int, int]:
+        raw = value.strip().lstrip("#")
+        if len(raw) != 6:
+            return 0, 0, 0
+        try:
+            return int(raw[0:2], 16), int(raw[2:4], 16), int(raw[4:6], 16)
+        except ValueError:
+            return 0, 0, 0
+
+    @staticmethod
+    def blend_rgb(foreground: tuple[int, int, int], background: tuple[int, int, int], opacity: float) -> tuple[int, int, int]:
+        opacity = max(0.0, min(1.0, opacity))
+        return tuple(
+            int(foreground[index] * opacity + background[index] * (1.0 - opacity))
+            for index in range(3)
+        )
+
+    @staticmethod
     def luminance(red: int, green: int, blue: int) -> float:
         return (0.299 * red) + (0.587 * green) + (0.114 * blue)
 
@@ -1194,8 +1220,7 @@ class PowerOverlay:
         return self.dynamic_foreground
 
     def set_foreground_colors(self) -> None:
-        self.label.configure(fg=self.watt_mask_foreground, bg=self.watt_mask_background)
-        self.watt_panel.configure(bg=self.watt_mask_background)
+        self.label.configure(fg=self.watt_mask_foreground)
         if self.percent_label is not None:
             self.percent_label.configure(fg=self.dynamic_foreground)
         if self.credit_label is not None:
@@ -1203,6 +1228,15 @@ class PowerOverlay:
         self.current_graph_line = self.dynamic_foreground
         self.current_graph_discharge_line = self.dynamic_foreground
         self.current_graph_baseline = self.graph_baseline
+
+    def set_watt_mask_background(self, sampled_rgb: tuple[int, int, int] | None = None) -> None:
+        if sampled_rgb is None:
+            color = self.watt_mask_background
+        else:
+            mask_rgb = self.parse_hex_color(self.watt_mask_background)
+            color = self.hex_color(*self.blend_rgb(mask_rgb, sampled_rgb, self.watt_mask_opacity))
+        self.watt_panel.configure(bg=color)
+        self.label.configure(bg=color)
 
     def set_text(self, text: str, is_error: bool, is_discharging: bool) -> None:
         if text == self.last_text and is_error == self.last_error_state and is_discharging == self.last_discharging:
@@ -1355,6 +1389,7 @@ class PowerOverlay:
 
         red, green, blue = rgb
         next_foreground = self.hex_color(255 - red, 255 - green, 255 - blue)
+        self.set_watt_mask_background(rgb)
         if next_foreground == self.dynamic_foreground:
             return
         self.dynamic_foreground = next_foreground
