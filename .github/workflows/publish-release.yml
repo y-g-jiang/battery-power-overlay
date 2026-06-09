@@ -1,0 +1,50 @@
+name: Publish Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/publish-release.yml"
+      - "BatteryInfoView/**"
+      - "installer/**"
+      - "battery_power_overlay.exe"
+      - "battery_power_overlay.json"
+      - "README.md"
+      - "NOTICE.md"
+      - "RELEASE_NOTES.md"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install PyInstaller
+        run: python -m pip install pyinstaller
+
+      - name: Build installer
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File .\installer\build_installer.ps1 -Version v0.1.0
+
+      - name: Create or update GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if (gh release view v0.1.0 --repo $env:GITHUB_REPOSITORY *> $null) {
+            gh release upload v0.1.0 .\release\BatteryPowerOverlaySetup.exe --repo $env:GITHUB_REPOSITORY --clobber
+          } else {
+            gh release create v0.1.0 .\release\BatteryPowerOverlaySetup.exe --repo $env:GITHUB_REPOSITORY --target main --title "Battery Power Overlay v0.1.0" --notes-file .\RELEASE_NOTES.md
+          }
