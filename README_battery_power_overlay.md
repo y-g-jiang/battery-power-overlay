@@ -11,7 +11,7 @@ whole-machine battery charge or discharge power in the top-left corner.
   no-activate, tool-window, and click-through behavior.
 - Samples once per second and redraws a tiny wattage sparkline only when a new
   sample arrives.
-- Shows the absolute wattage value on a small lightly blended white-on-dark
+- Shows the absolute wattage value on a small true translucent white-on-dark
   mask, and hides that wattage mask when the pointer is nearby.
 - Shows the BatteryInfoView current capacity percentage at the overlay's
   top-right corner.
@@ -61,7 +61,7 @@ Example:
   "watt_mask": {
     "background": "#050505",
     "foreground": "#ffffff",
-    "background_opacity": 0.62,
+    "background_opacity": 0.45,
     "hide_proximity_pixels": 96
   },
   "graph": {

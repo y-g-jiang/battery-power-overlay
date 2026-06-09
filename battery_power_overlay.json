@@ -23,7 +23,7 @@
   "watt_mask": {
     "background": "#050505",
     "foreground": "#ffffff",
-    "background_opacity": 0.62,
+    "background_opacity": 0.45,
     "hide_proximity_pixels": 96
   },
   "graph": {

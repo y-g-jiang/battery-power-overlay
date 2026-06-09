@@ -53,7 +53,7 @@ DEFAULT_CONFIG = {
     "watt_mask": {
         "background": "#050505",
         "foreground": "#ffffff",
-        "background_opacity": 0.62,
+        "background_opacity": 0.45,
         "hide_proximity_pixels": 96,
     },
     "graph": {
@@ -739,10 +739,21 @@ class Win32OverlayStyle:
             ctypes.c_void_p,
             ctypes.c_uint,
         ]
+        self.user32.GetWindowRect.argtypes = [
+            ctypes.wintypes.HWND,
+            ctypes.POINTER(ctypes.wintypes.RECT),
+        ]
+        self.user32.GetWindowRect.restype = ctypes.wintypes.BOOL
 
     def root_hwnd(self, hwnd: int) -> int:
         root = int(self.user32.GetAncestor(hwnd, self.GA_ROOT))
         return root or hwnd
+
+    def window_rect(self, hwnd: int) -> tuple[int, int, int, int] | None:
+        rect = ctypes.wintypes.RECT()
+        if not self.user32.GetWindowRect(self.root_hwnd(hwnd), ctypes.byref(rect)):
+            return None
+        return rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top
 
     @staticmethod
     def colorref(hex_color: str | None) -> int:
@@ -854,6 +865,25 @@ class Win32OverlayStyle:
         for child_hwnd in self.child_windows(root):
             self.apply_child(child_hwnd, click_through, transparent_color)
             self.install_hit_test_passthrough(child_hwnd, click_through)
+
+    def apply_toplevel(self, hwnd: int, opacity: float, click_through: bool, transparent_color: str | None = None) -> None:
+        root = self.root_hwnd(int(hwnd))
+        self.apply(root, opacity, click_through, transparent_color)
+        self.install_hit_test_passthrough(root, click_through)
+        for child_hwnd in self.child_windows(root):
+            self.apply_child(child_hwnd, click_through, transparent_color)
+            self.install_hit_test_passthrough(child_hwnd, click_through)
+
+    def move_resize(self, hwnd: int, x: int, y: int, width: int, height: int) -> None:
+        self.user32.SetWindowPos(
+            self.root_hwnd(int(hwnd)),
+            self.HWND_TOPMOST,
+            x,
+            y,
+            width,
+            height,
+            self.SWP_NOACTIVATE | self.SWP_SHOWWINDOW,
+        )
 
     def keep_topmost(self, hwnd: int) -> None:
         self.user32.SetWindowPos(
@@ -1067,7 +1097,7 @@ class PowerOverlay:
 
         self.watt_panel = tk.Frame(
             self.header,
-            bg=self.watt_mask_background,
+            bg=bg,
             bd=0,
             highlightthickness=0,
         )
@@ -1077,7 +1107,7 @@ class PowerOverlay:
             self.watt_panel,
             text="-- W",
             font=(family, size),
-            bg=self.watt_mask_background,
+            bg=bg,
             fg=self.watt_mask_foreground,
             bd=0,
             padx=padx,
@@ -1129,13 +1159,20 @@ class PowerOverlay:
                 pady=0,
             )
 
+        self.watt_mask_window: tk.Toplevel | None = tk.Toplevel(self.root)
+        self.watt_mask_window.title(f"{APP_NAME}Mask")
+        self.watt_mask_window.overrideredirect(True)
+        self.watt_mask_window.attributes("-topmost", True)
+        self.watt_mask_window.configure(bg=self.watt_mask_background, bd=0, highlightthickness=0)
+        self.watt_mask_window.withdraw()
+
         self.home_x = as_int(position_config.get("x"), 6, -10000, 10000)
         self.home_y = as_int(position_config.get("y"), 6, -10000, 10000)
         self.current_x = self.home_x
         self.current_y = self.home_y
         self.root.geometry(self.geometry_at(self.current_x, self.current_y))
         self.root.update_idletasks()
-        self.set_watt_mask_background()
+        self.update_watt_mask_geometry()
         self.apply_window_style()
 
         self.poller = Poller(reader, interval, self.samples, self.stop_event)
@@ -1153,6 +1190,7 @@ class PowerOverlay:
         self.current_y = y
         self.root.geometry(self.geometry_at(x, y))
         self.root.update_idletasks()
+        self.update_watt_mask_geometry()
         self.apply_window_style()
 
     def apply_window_style(self) -> None:
@@ -1160,8 +1198,22 @@ class PowerOverlay:
         if self.win32:
             hwnd = self.root.winfo_id()
             self.win32.apply_tree(hwnd, opacity, self.click_through, self.transparent_color)
+            self.apply_watt_mask_style()
+            if self.watt_mask_window is not None:
+                self.watt_mask_window.lift()
+            self.root.lift()
         else:
             self.root.attributes("-alpha", opacity)
+            self.apply_watt_mask_style()
+
+    def apply_watt_mask_style(self) -> None:
+        if self.watt_mask_window is None:
+            return
+        opacity = max(0.05, min(1.0, self.watt_mask_opacity))
+        if self.win32:
+            self.win32.apply_toplevel(self.watt_mask_window.winfo_id(), opacity, self.click_through, None)
+        else:
+            self.watt_mask_window.attributes("-alpha", opacity)
 
     def prime_window_style(self, passes: int = 8) -> None:
         self.apply_window_style()
@@ -1195,24 +1247,6 @@ class PowerOverlay:
         return f"#{max(0, min(255, red)):02x}{max(0, min(255, green)):02x}{max(0, min(255, blue)):02x}"
 
     @staticmethod
-    def parse_hex_color(value: str) -> tuple[int, int, int]:
-        raw = value.strip().lstrip("#")
-        if len(raw) != 6:
-            return 0, 0, 0
-        try:
-            return int(raw[0:2], 16), int(raw[2:4], 16), int(raw[4:6], 16)
-        except ValueError:
-            return 0, 0, 0
-
-    @staticmethod
-    def blend_rgb(foreground: tuple[int, int, int], background: tuple[int, int, int], opacity: float) -> tuple[int, int, int]:
-        opacity = max(0.0, min(1.0, opacity))
-        return tuple(
-            int(foreground[index] * opacity + background[index] * (1.0 - opacity))
-            for index in range(3)
-        )
-
-    @staticmethod
     def luminance(red: int, green: int, blue: int) -> float:
         return (0.299 * red) + (0.587 * green) + (0.114 * blue)
 
@@ -1229,14 +1263,48 @@ class PowerOverlay:
         self.current_graph_discharge_line = self.dynamic_foreground
         self.current_graph_baseline = self.graph_baseline
 
-    def set_watt_mask_background(self, sampled_rgb: tuple[int, int, int] | None = None) -> None:
-        if sampled_rgb is None:
-            color = self.watt_mask_background
-        else:
-            mask_rgb = self.parse_hex_color(self.watt_mask_background)
-            color = self.hex_color(*self.blend_rgb(mask_rgb, sampled_rgb, self.watt_mask_opacity))
-        self.watt_panel.configure(bg=color)
-        self.label.configure(bg=color)
+    def update_watt_mask_geometry(self) -> None:
+        mask = self.watt_mask_window
+        if mask is None:
+            return
+        if not self.watt_visible:
+            mask.withdraw()
+            return
+
+        self.root.update_idletasks()
+        width = max(1, self.watt_panel.winfo_width())
+        height = max(1, self.watt_panel.winfo_height())
+        root_x, root_y = self.current_x, self.current_y
+        offset_x, offset_y = self.widget_offset_from_root(self.watt_panel)
+        offset_x = max(0, offset_x)
+        offset_y = max(0, offset_y)
+        x = root_x + offset_x
+        y = root_y + offset_y
+        mask.configure(bg=self.watt_mask_background)
+        mask.geometry(f"{width}x{height}+{x}+{y}")
+        mask.deiconify()
+        mask.update_idletasks()
+        if self.win32:
+            self.win32.move_resize(mask.winfo_id(), x, y, width, height)
+        self.apply_watt_mask_style()
+        mask.lift()
+        self.root.lift()
+
+    def widget_offset_from_root(self, widget: tk.Widget) -> tuple[int, int]:
+        x = 0
+        y = 0
+        current: tk.Widget = widget
+        while current is not self.root:
+            x += current.winfo_x()
+            y += current.winfo_y()
+            parent_name = current.winfo_parent()
+            if not parent_name:
+                break
+            parent = current.nametowidget(parent_name)
+            if not isinstance(parent, tk.Widget):
+                break
+            current = parent
+        return x, y
 
     def set_text(self, text: str, is_error: bool, is_discharging: bool) -> None:
         if text == self.last_text and is_error == self.last_error_state and is_discharging == self.last_discharging:
@@ -1247,6 +1315,7 @@ class PowerOverlay:
         self.label.configure(text=text)
         self.set_foreground_colors()
         self.root.update_idletasks()
+        self.update_watt_mask_geometry()
 
     def set_percent(self, percent: float | None) -> None:
         if self.percent_label is None:
@@ -1367,6 +1436,7 @@ class PowerOverlay:
         else:
             self.watt_panel.grid_remove()
         self.root.update_idletasks()
+        self.update_watt_mask_geometry()
         self.apply_window_style()
 
     def update_watt_visibility(self) -> None:
@@ -1389,7 +1459,6 @@ class PowerOverlay:
 
         red, green, blue = rgb
         next_foreground = self.hex_color(255 - red, 255 - green, 255 - blue)
-        self.set_watt_mask_background(rgb)
         if next_foreground == self.dynamic_foreground:
             return
         self.dynamic_foreground = next_foreground
@@ -1422,10 +1491,10 @@ class PowerOverlay:
         self.root.after(1000, self.pump_samples)
 
     def refresh_topmost(self) -> None:
+        self.update_watt_mask_geometry()
         if self.win32:
             hwnd = self.win32.root_hwnd(self.root.winfo_id())
-            opacity = as_float(self.config.get("opacity"), 1.0, 0.15, 1.0)
-            self.win32.apply_tree(hwnd, opacity, self.click_through, self.transparent_color)
+            self.apply_window_style()
             self.win32.keep_topmost(hwnd)
         else:
             self.root.attributes("-topmost", True)
@@ -1433,6 +1502,8 @@ class PowerOverlay:
 
     def close(self) -> None:
         self.stop_event.set()
+        if self.watt_mask_window is not None:
+            self.watt_mask_window.destroy()
         self.root.destroy()
 
     def run(self) -> None:
