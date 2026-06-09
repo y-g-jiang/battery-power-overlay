@@ -1,14 +1,17 @@
-# Battery Power Overlay v0.2.0
+# Battery Power Overlay v0.3.0
 
-Design update.
+Transparent contrast update.
 
 Includes:
 
+- no dodge behavior
+- no gray/black background mask behind the overlay
+- adaptive inverse-color text and sparkline sampled from the background
 - battery percentage in the overlay's top-right corner
-- pointer dodge: the overlay moves downward by one overlay height when reached
 - click-through style reapplied to all top-level and child window handles
+- silent successful installer; only installation failures show a dialog
+- installer removes the previous per-user installation before copying v0.3.0
 - 1 second BatteryInfoView polling
-- red wattage and sparkline while discharging
 - hover-near credit text: `2026 姜尧耕 y-g-jiang.github.io`
 - per-user startup registration
 - bundled BatteryInfoView freeware files

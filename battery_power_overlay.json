@@ -2,7 +2,7 @@
   "batteryinfo_path": "BatteryInfoView\\BatteryInfoView.exe",
   "sample_interval_seconds": 1.0,
   "subprocess_timeout_seconds": 6.0,
-  "opacity": 0.72,
+  "opacity": 1.0,
   "position": {
     "x": 6,
     "y": 6
@@ -11,7 +11,8 @@
     "family": "Segoe UI Semibold",
     "size": 12
   },
-  "background": "#050505",
+  "background": "#010203",
+  "transparent_background": true,
   "foreground": "#f4f4f4",
   "discharge_foreground": "#ff5a5f",
   "error_foreground": "#ffd37a",
@@ -26,7 +27,7 @@
     "history_seconds": 60,
     "line": "#78d9ff",
     "discharge_line": "#ff5a5f",
-    "baseline": "#353535"
+    "baseline": ""
   },
   "percent": {
     "enabled": true,
@@ -47,11 +48,11 @@
     },
     "foreground": "#b8c2c7"
   },
-  "dodge": {
+  "adaptive_contrast": {
     "enabled": true,
-    "poll_ms": 80,
-    "gap_pixels": 4,
-    "return_margin_pixels": 42
+    "poll_ms": 120,
+    "sample_columns": 7,
+    "sample_rows": 5
   },
   "register_startup_on_first_run": true,
   "startup_registered": false,

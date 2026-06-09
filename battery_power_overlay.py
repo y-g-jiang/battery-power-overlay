@@ -41,10 +41,11 @@ DEFAULT_CONFIG = {
     "batteryinfo_path": "",
     "sample_interval_seconds": 1.0,
     "subprocess_timeout_seconds": 6.0,
-    "opacity": 0.72,
+    "opacity": 1.0,
     "position": {"x": 6, "y": 6},
     "font": {"family": "Segoe UI Semibold", "size": 12},
-    "background": "#050505",
+    "background": "#010203",
+    "transparent_background": True,
     "foreground": "#f4f4f4",
     "discharge_foreground": "#ff5a5f",
     "error_foreground": "#ffd37a",
@@ -56,7 +57,7 @@ DEFAULT_CONFIG = {
         "history_seconds": 60,
         "line": "#78d9ff",
         "discharge_line": "#ff5a5f",
-        "baseline": "#353535",
+        "baseline": "",
     },
     "percent": {
         "enabled": True,
@@ -71,11 +72,11 @@ DEFAULT_CONFIG = {
         "font": {"family": "Segoe UI", "size": 8},
         "foreground": "#b8c2c7",
     },
-    "dodge": {
+    "adaptive_contrast": {
         "enabled": True,
-        "poll_ms": 80,
-        "gap_pixels": 4,
-        "return_margin_pixels": 42,
+        "poll_ms": 120,
+        "sample_columns": 7,
+        "sample_rows": 5,
     },
     "register_startup_on_first_run": True,
     "startup_registered": False,
@@ -658,6 +659,7 @@ class Win32OverlayStyle:
     WS_EX_TOOLWINDOW = 0x00000080
     WS_EX_NOACTIVATE = 0x08000000
     WS_EX_APPWINDOW = 0x00040000
+    LWA_COLORKEY = 0x00000001
     LWA_ALPHA = 0x00000002
     HWND_TOPMOST = -1
     SWP_NOSIZE = 0x0001
@@ -736,7 +738,22 @@ class Win32OverlayStyle:
         root = int(self.user32.GetAncestor(hwnd, self.GA_ROOT))
         return root or hwnd
 
-    def apply(self, hwnd: int, opacity: float, click_through: bool) -> None:
+    @staticmethod
+    def colorref(hex_color: str | None) -> int:
+        if not hex_color:
+            return 0
+        value = hex_color.strip().lstrip("#")
+        if len(value) != 6:
+            return 0
+        try:
+            red = int(value[0:2], 16)
+            green = int(value[2:4], 16)
+            blue = int(value[4:6], 16)
+        except ValueError:
+            return 0
+        return red | (green << 8) | (blue << 16)
+
+    def apply(self, hwnd: int, opacity: float, click_through: bool, transparent_color: str | None) -> None:
         style = int(self.get_window_long(hwnd, self.GWL_EXSTYLE))
         style |= self.WS_EX_LAYERED | self.WS_EX_TOPMOST | self.WS_EX_TOOLWINDOW | self.WS_EX_NOACTIVATE
         style &= ~self.WS_EX_APPWINDOW
@@ -747,11 +764,16 @@ class Win32OverlayStyle:
 
         self.set_window_long(hwnd, self.GWL_EXSTYLE, style)
         alpha = int(max(0.15, min(1.0, opacity)) * 255)
-        self.user32.SetLayeredWindowAttributes(hwnd, 0, alpha, self.LWA_ALPHA)
+        flags = self.LWA_ALPHA
+        color_key = 0
+        if transparent_color:
+            flags |= self.LWA_COLORKEY
+            color_key = self.colorref(transparent_color)
+        self.user32.SetLayeredWindowAttributes(hwnd, color_key, alpha, flags)
         self.user32.RedrawWindow(hwnd, None, None, self.RDW_INVALIDATE | self.RDW_FRAME)
         self.keep_topmost(hwnd)
 
-    def apply_child(self, hwnd: int, click_through: bool) -> None:
+    def apply_child(self, hwnd: int, click_through: bool, transparent_color: str | None) -> None:
         style = int(self.get_window_long(hwnd, self.GWL_EXSTYLE))
         style |= self.WS_EX_LAYERED
         if click_through:
@@ -759,7 +781,12 @@ class Win32OverlayStyle:
         else:
             style &= ~self.WS_EX_TRANSPARENT
         self.set_window_long(hwnd, self.GWL_EXSTYLE, style)
-        self.user32.SetLayeredWindowAttributes(hwnd, 0, 255, self.LWA_ALPHA)
+        flags = self.LWA_ALPHA
+        color_key = 0
+        if transparent_color:
+            flags |= self.LWA_COLORKEY
+            color_key = self.colorref(transparent_color)
+        self.user32.SetLayeredWindowAttributes(hwnd, color_key, 255, flags)
         self.user32.RedrawWindow(hwnd, None, None, self.RDW_INVALIDATE | self.RDW_FRAME)
 
     def proc_pointer(self, proc: int) -> ctypes.c_void_p:
@@ -814,12 +841,12 @@ class Win32OverlayStyle:
         self.user32.EnumChildWindows(hwnd, collect, 0)
         return children
 
-    def apply_tree(self, hwnd: int, opacity: float, click_through: bool) -> None:
+    def apply_tree(self, hwnd: int, opacity: float, click_through: bool, transparent_color: str | None = None) -> None:
         root = self.root_hwnd(hwnd)
-        self.apply(root, opacity, click_through)
+        self.apply(root, opacity, click_through, transparent_color)
         self.install_hit_test_passthrough(root, click_through)
         for child_hwnd in self.child_windows(root):
-            self.apply_child(child_hwnd, click_through)
+            self.apply_child(child_hwnd, click_through, transparent_color)
             self.install_hit_test_passthrough(child_hwnd, click_through)
 
     def keep_topmost(self, hwnd: int) -> None:
@@ -832,6 +859,50 @@ class Win32OverlayStyle:
             0,
             self.SWP_NOMOVE | self.SWP_NOSIZE | self.SWP_NOACTIVATE | self.SWP_SHOWWINDOW,
         )
+
+
+class ScreenSampler:
+    def __init__(self) -> None:
+        self.user32 = ctypes.windll.user32
+        self.gdi32 = ctypes.windll.gdi32
+        self.user32.GetDC.argtypes = [ctypes.wintypes.HWND]
+        self.user32.GetDC.restype = ctypes.wintypes.HDC
+        self.user32.ReleaseDC.argtypes = [ctypes.wintypes.HWND, ctypes.wintypes.HDC]
+        self.gdi32.GetPixel.argtypes = [ctypes.wintypes.HDC, ctypes.c_int, ctypes.c_int]
+        self.gdi32.GetPixel.restype = ctypes.wintypes.COLORREF
+
+    def average_rgb(self, x: int, y: int, width: int, height: int, columns: int, rows: int) -> tuple[int, int, int] | None:
+        if width <= 0 or height <= 0:
+            return None
+
+        hdc = self.user32.GetDC(None)
+        if not hdc:
+            return None
+
+        columns = max(1, columns)
+        rows = max(1, rows)
+        red_total = 0
+        green_total = 0
+        blue_total = 0
+        count = 0
+        try:
+            for row in range(rows):
+                py = y + int((row + 0.5) * height / rows)
+                for column in range(columns):
+                    px = x + int((column + 0.5) * width / columns)
+                    color = int(self.gdi32.GetPixel(hdc, px, py))
+                    if color < 0:
+                        continue
+                    red_total += color & 0xFF
+                    green_total += (color >> 8) & 0xFF
+                    blue_total += (color >> 16) & 0xFF
+                    count += 1
+        finally:
+            self.user32.ReleaseDC(None, hdc)
+
+        if count == 0:
+            return None
+        return red_total // count, green_total // count, blue_total // count
 
 
 class PowerOverlay:
@@ -850,7 +921,9 @@ class PowerOverlay:
         self.last_percent_text = ""
         self.last_error_state = False
         self.last_discharging = False
+        self.dynamic_foreground = str(config.get("foreground", DEFAULT_CONFIG["foreground"]))
         self.win32 = Win32OverlayStyle() if os.name == "nt" else None
+        self.screen_sampler = ScreenSampler() if os.name == "nt" else None
 
         self.root = tk.Tk()
         self.root.title(APP_NAME)
@@ -863,22 +936,29 @@ class PowerOverlay:
         graph_config = config.get("graph", {})
         percent_config = config.get("percent", {})
         credit_config = config.get("credit", {})
-        dodge_config = config.get("dodge", {})
+        adaptive_config = config.get("adaptive_contrast", {})
         assert isinstance(font_config, dict)
         assert isinstance(position_config, dict)
         assert isinstance(padding_config, dict)
         assert isinstance(graph_config, dict)
         assert isinstance(percent_config, dict)
         assert isinstance(credit_config, dict)
-        assert isinstance(dodge_config, dict)
+        assert isinstance(adaptive_config, dict)
 
         family = str(font_config.get("family", DEFAULT_CONFIG["font"]["family"]))
         size = as_int(font_config.get("size"), 12, 7, 32)
         bg = str(config.get("background", DEFAULT_CONFIG["background"]))
         fg = str(config.get("foreground", DEFAULT_CONFIG["foreground"]))
+        self.transparent_color = bg if bool(config.get("transparent_background", True)) else None
         padx = as_int(padding_config.get("x"), 8, 0, 32)
         pady = as_int(padding_config.get("y"), 3, 0, 24)
         interval = as_float(config.get("sample_interval_seconds"), 1.0, 1.0, 300.0)
+        self.root.configure(bg=bg)
+        if self.transparent_color:
+            try:
+                self.root.attributes("-transparentcolor", self.transparent_color)
+            except tk.TclError:
+                pass
 
         graph_defaults = DEFAULT_CONFIG["graph"]
         assert isinstance(graph_defaults, dict)
@@ -896,6 +976,9 @@ class PowerOverlay:
         self.graph_line = str(graph_config.get("line", graph_defaults["line"]))
         self.graph_discharge_line = str(graph_config.get("discharge_line", graph_defaults["discharge_line"]))
         self.graph_baseline = str(graph_config.get("baseline", graph_defaults["baseline"]))
+        self.current_graph_line = self.graph_line
+        self.current_graph_discharge_line = self.graph_discharge_line
+        self.current_graph_baseline = self.graph_baseline
 
         percent_defaults = DEFAULT_CONFIG["percent"]
         assert isinstance(percent_defaults, dict)
@@ -925,18 +1008,27 @@ class PowerOverlay:
         self.credit_poll_ms = as_int(credit_config.get("poll_ms"), int(credit_defaults["poll_ms"]), 100, 2000)
         self.credit_visible = False
 
-        dodge_defaults = DEFAULT_CONFIG["dodge"]
-        assert isinstance(dodge_defaults, dict)
-        self.dodge_enabled = bool(dodge_config.get("enabled", dodge_defaults["enabled"]))
-        self.dodge_poll_ms = as_int(dodge_config.get("poll_ms"), int(dodge_defaults["poll_ms"]), 50, 1000)
-        self.dodge_gap = as_int(dodge_config.get("gap_pixels"), int(dodge_defaults["gap_pixels"]), 0, 80)
-        self.dodge_return_margin = as_int(
-            dodge_config.get("return_margin_pixels"),
-            int(dodge_defaults["return_margin_pixels"]),
-            0,
-            240,
+        adaptive_defaults = DEFAULT_CONFIG["adaptive_contrast"]
+        assert isinstance(adaptive_defaults, dict)
+        self.adaptive_enabled = bool(adaptive_config.get("enabled", adaptive_defaults["enabled"]))
+        self.adaptive_poll_ms = as_int(
+            adaptive_config.get("poll_ms"),
+            int(adaptive_defaults["poll_ms"]),
+            50,
+            2000,
         )
-        self.dodged = False
+        self.adaptive_columns = as_int(
+            adaptive_config.get("sample_columns"),
+            int(adaptive_defaults["sample_columns"]),
+            1,
+            16,
+        )
+        self.adaptive_rows = as_int(
+            adaptive_config.get("sample_rows"),
+            int(adaptive_defaults["sample_rows"]),
+            1,
+            12,
+        )
 
         self.container = tk.Frame(self.root, bg=bg, bd=0, highlightthickness=0)
         self.container.pack()
@@ -1029,10 +1121,10 @@ class PowerOverlay:
         self.apply_window_style()
 
     def apply_window_style(self) -> None:
-        opacity = as_float(self.config.get("opacity"), 0.72, 0.15, 1.0)
+        opacity = as_float(self.config.get("opacity"), 1.0, 0.15, 1.0)
         if self.win32:
             hwnd = self.root.winfo_id()
-            self.win32.apply_tree(hwnd, opacity, self.click_through)
+            self.win32.apply_tree(hwnd, opacity, self.click_through, self.transparent_color)
         else:
             self.root.attributes("-alpha", opacity)
 
@@ -1063,19 +1155,36 @@ class PowerOverlay:
             return "--%"
         return f"{percent:.0f}%"
 
+    @staticmethod
+    def hex_color(red: int, green: int, blue: int) -> str:
+        return f"#{max(0, min(255, red)):02x}{max(0, min(255, green)):02x}{max(0, min(255, blue)):02x}"
+
+    @staticmethod
+    def luminance(red: int, green: int, blue: int) -> float:
+        return (0.299 * red) + (0.587 * green) + (0.114 * blue)
+
+    def foreground_for_current_state(self) -> str:
+        return self.dynamic_foreground
+
+    def set_foreground_colors(self) -> None:
+        fg = self.foreground_for_current_state()
+        self.label.configure(fg=fg)
+        if self.percent_label is not None:
+            self.percent_label.configure(fg=self.dynamic_foreground)
+        if self.credit_label is not None:
+            self.credit_label.configure(fg=self.dynamic_foreground)
+        self.current_graph_line = self.dynamic_foreground
+        self.current_graph_discharge_line = self.dynamic_foreground
+        self.current_graph_baseline = self.graph_baseline
+
     def set_text(self, text: str, is_error: bool, is_discharging: bool) -> None:
         if text == self.last_text and is_error == self.last_error_state and is_discharging == self.last_discharging:
             return
         self.last_text = text
         self.last_error_state = is_error
         self.last_discharging = is_discharging
-        if is_error:
-            fg_key = "error_foreground"
-        elif is_discharging:
-            fg_key = "discharge_foreground"
-        else:
-            fg_key = "foreground"
-        self.label.configure(text=text, fg=str(self.config.get(fg_key, DEFAULT_CONFIG[fg_key])))
+        self.label.configure(text=text)
+        self.set_foreground_colors()
         self.root.update_idletasks()
 
     def set_percent(self, percent: float | None) -> None:
@@ -1104,7 +1213,8 @@ class PowerOverlay:
         height = self.graph_height
         pad = 2
         bottom = height - pad
-        canvas.create_line(pad, bottom, width - pad, bottom, fill=self.graph_baseline)
+        if self.current_graph_baseline:
+            canvas.create_line(pad, bottom, width - pad, bottom, fill=self.current_graph_baseline)
 
         values = list(self.graph_values)
         valid_values = [value for value in values if value is not None]
@@ -1121,7 +1231,7 @@ class PowerOverlay:
         for index, value in enumerate(values):
             if value is None:
                 if len(segment) >= 4:
-                    line_color = self.graph_discharge_line if segment_discharging else self.graph_line
+                    line_color = self.current_graph_discharge_line if segment_discharging else self.current_graph_line
                     canvas.create_line(*segment, fill=line_color, width=2, smooth=True)
                 segment = []
                 continue
@@ -1131,14 +1241,14 @@ class PowerOverlay:
             y = bottom - min(magnitude * y_scale, height - pad * 2)
             if segment and is_discharging != segment_discharging:
                 if len(segment) >= 4:
-                    line_color = self.graph_discharge_line if segment_discharging else self.graph_line
+                    line_color = self.current_graph_discharge_line if segment_discharging else self.current_graph_line
                     canvas.create_line(*segment, fill=line_color, width=2, smooth=True)
                 segment = segment[-2:]
             segment_discharging = is_discharging
             segment.extend([x, y])
 
         if len(segment) >= 4:
-            line_color = self.graph_discharge_line if segment_discharging else self.graph_line
+            line_color = self.current_graph_discharge_line if segment_discharging else self.current_graph_line
             canvas.create_line(*segment, fill=line_color, width=2, smooth=True)
 
     def set_credit_visible(self, visible: bool) -> None:
@@ -1175,7 +1285,7 @@ class PowerOverlay:
         width = self.root.winfo_width()
         height = self.root.winfo_height()
         margin = self.credit_proximity
-        near_current = self.point_in_rect(
+        return self.point_in_rect(
             pointer_x,
             pointer_y,
             self.current_x,
@@ -1184,73 +1294,39 @@ class PowerOverlay:
             height,
             margin,
         )
-        near_home = self.dodged and self.point_in_rect(
-            pointer_x,
-            pointer_y,
-            self.home_x,
-            self.home_y,
-            width,
-            height,
-            margin,
+
+    def update_adaptive_contrast(self) -> None:
+        if not self.adaptive_enabled or self.screen_sampler is None:
+            return
+
+        rgb = self.screen_sampler.average_rgb(
+            self.current_x,
+            self.current_y,
+            max(1, self.root.winfo_width()),
+            max(1, self.root.winfo_height()),
+            self.adaptive_columns,
+            self.adaptive_rows,
         )
-        return near_current or near_home
-
-    def set_dodged(self, dodged: bool) -> None:
-        if dodged == self.dodged:
+        if rgb is None:
             return
 
-        self.dodged = dodged
-        height = max(1, self.root.winfo_height())
-        if dodged:
-            target_y = self.home_y + height + self.dodge_gap
-            screen_height = max(height, self.root.winfo_screenheight())
-            target_y = min(target_y, max(0, screen_height - height))
-        else:
-            target_y = self.home_y
-        self.move_window(self.home_x, target_y)
-
-    def update_dodge(self) -> None:
-        if not self.dodge_enabled:
+        red, green, blue = rgb
+        next_foreground = self.hex_color(255 - red, 255 - green, 255 - blue)
+        if next_foreground == self.dynamic_foreground:
             return
+        self.dynamic_foreground = next_foreground
+        self.set_foreground_colors()
+        self.draw_graph()
 
-        pointer = self.pointer_position()
-        if pointer is None:
-            return
-
-        pointer_x, pointer_y = pointer
-        width = self.root.winfo_width()
-        height = self.root.winfo_height()
-        on_current = self.point_in_rect(pointer_x, pointer_y, self.current_x, self.current_y, width, height)
-        if on_current and not self.dodged:
-            self.set_dodged(True)
-            return
-
-        if self.dodged:
-            margin = self.dodge_return_margin
-            keep_dodged = self.point_in_rect(
-                pointer_x,
-                pointer_y,
-                self.home_x,
-                self.home_y,
-                width,
-                height,
-                margin,
-            ) or self.point_in_rect(
-                pointer_x,
-                pointer_y,
-                self.current_x,
-                self.current_y,
-                width,
-                height,
-                margin,
-            )
-            if not keep_dodged:
-                self.set_dodged(False)
+    def visual_poll_interval(self) -> int:
+        if self.adaptive_enabled:
+            return min(self.credit_poll_ms, self.adaptive_poll_ms)
+        return self.credit_poll_ms
 
     def poll_pointer(self) -> None:
-        self.update_dodge()
+        self.update_adaptive_contrast()
         self.set_credit_visible(self.pointer_is_near_overlay())
-        self.root.after(min(self.credit_poll_ms, self.dodge_poll_ms), self.poll_pointer)
+        self.root.after(self.visual_poll_interval(), self.poll_pointer)
 
     def pump_samples(self) -> None:
         latest: PowerSample | None = None
@@ -1269,7 +1345,8 @@ class PowerOverlay:
     def refresh_topmost(self) -> None:
         if self.win32:
             hwnd = self.win32.root_hwnd(self.root.winfo_id())
-            self.win32.apply_tree(hwnd, as_float(self.config.get("opacity"), 0.72, 0.15, 1.0), self.click_through)
+            opacity = as_float(self.config.get("opacity"), 1.0, 0.15, 1.0)
+            self.win32.apply_tree(hwnd, opacity, self.click_through, self.transparent_color)
             self.win32.keep_topmost(hwnd)
         else:
             self.root.attributes("-topmost", True)
@@ -1283,7 +1360,7 @@ class PowerOverlay:
         self.poller.start()
         self.root.after(0, self.prime_window_style)
         self.root.after(1000, self.pump_samples)
-        self.root.after(min(self.credit_poll_ms, self.dodge_poll_ms), self.poll_pointer)
+        self.root.after(self.visual_poll_interval(), self.poll_pointer)
         self.root.after(1000, self.refresh_topmost)
         self.root.mainloop()
         self.stop_event.set()
@@ -1305,7 +1382,7 @@ def apply_cli_overrides(config: dict[str, object], args: argparse.Namespace) -> 
     if args.interval is not None:
         config["sample_interval_seconds"] = as_float(args.interval, 1.0, 1.0, 300.0)
     if args.opacity is not None:
-        config["opacity"] = as_float(args.opacity, 0.72, 0.15, 1.0)
+        config["opacity"] = as_float(args.opacity, 1.0, 0.15, 1.0)
     if args.no_startup:
         config["register_startup_on_first_run"] = False
 

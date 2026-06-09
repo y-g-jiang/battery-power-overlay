@@ -7,16 +7,14 @@ whole-machine battery charge or discharge power in the top-left corner.
 
 - Polls NirSoft BatteryInfoView through its `/scomma` CSV export option.
 - Uses a tiny Tk window instead of a browser or always-rendering UI stack.
-- Applies Win32 extended window styles for topmost, semi-transparent,
+- Applies Win32 extended window styles for topmost, transparent background,
   no-activate, tool-window, and click-through behavior.
 - Samples once per second and redraws a tiny wattage sparkline only when a new
   sample arrives.
-- Shows the absolute wattage value; discharging is indicated in red to save
-  space.
+- Shows the absolute wattage value with adaptive inverse-color text sampled
+  from the background behind the overlay.
 - Shows the BatteryInfoView current capacity percentage at the overlay's
   top-right corner.
-- Moves downward by one overlay height when the pointer reaches it, while
-  staying fully click-through.
 - Shows `2026 姜尧耕 y-g-jiang.github.io` next to the overlay when the mouse is
   nearby. The overlay remains fully click-through.
 - Registers the packaged exe for current-user startup on first normal launch.
@@ -39,6 +37,9 @@ battery_power_overlay.json
 The app first looks for this JSON beside the executable, then in the current
 working directory, then under `%APPDATA%\BatteryPowerOverlay`.
 
+The installer removes the previous `%LOCALAPPDATA%\BatteryPowerOverlay`
+installation before copying the new version and registering startup again.
+
 ## Configuration
 
 Example:
@@ -48,10 +49,11 @@ Example:
   "batteryinfo_path": "C:\\Tools\\BatteryInfoView\\BatteryInfoView.exe",
   "sample_interval_seconds": 1.0,
   "subprocess_timeout_seconds": 6.0,
-  "opacity": 0.72,
+  "opacity": 1.0,
   "position": { "x": 6, "y": 6 },
   "font": { "family": "Segoe UI Semibold", "size": 12 },
-  "background": "#050505",
+  "background": "#010203",
+  "transparent_background": true,
   "foreground": "#f4f4f4",
   "discharge_foreground": "#ff5a5f",
   "error_foreground": "#ffd37a",
@@ -63,7 +65,7 @@ Example:
     "history_seconds": 60,
     "line": "#78d9ff",
     "discharge_line": "#ff5a5f",
-    "baseline": "#353535"
+    "baseline": ""
   },
   "percent": {
     "enabled": true,
@@ -78,11 +80,11 @@ Example:
     "font": { "family": "Segoe UI", "size": 8 },
     "foreground": "#b8c2c7"
   },
-  "dodge": {
+  "adaptive_contrast": {
     "enabled": true,
-    "poll_ms": 80,
-    "gap_pixels": 4,
-    "return_margin_pixels": 42
+    "poll_ms": 120,
+    "sample_columns": 7,
+    "sample_rows": 5
   },
   "register_startup_on_first_run": true,
   "startup_registered": false,
@@ -91,9 +93,9 @@ Example:
 }
 ```
 
-The default is one sample per second, with a 60-second sparkline. Higher
-`sample_interval_seconds` means lower overhead if you later decide to make it
-less aggressive.
+The default is one BatteryInfoView sample per second, with a 60-second
+sparkline. Adaptive contrast only samples a small grid of screen pixels behind
+the overlay; it does not call BatteryInfoView more often.
 
 ## Useful commands
 

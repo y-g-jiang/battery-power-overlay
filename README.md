@@ -6,11 +6,10 @@ BatteryInfoView and shows it in the top-left corner with a small sparkline.
 Highlights:
 
 - 1 second polling through BatteryInfoView `/scomma`
-- semi-transparent always-on-top overlay
+- transparent always-on-top overlay
 - click-through top-level and child windows
-- red text/line while discharging
+- adaptive inverse-color text and sparkline sampled from the background
 - battery percentage in the overlay's top-right corner
-- dodges downward by one overlay height when the pointer reaches it
 - hover-near credit text: `2026 姜尧耕 y-g-jiang.github.io`
 - per-user startup registration
 
@@ -24,6 +23,7 @@ it. The installer copies the app to:
 ```
 
 It also creates a current-user startup entry and launches the overlay.
+Before copying the new files, it removes the previous per-user installation.
 
 ## Source Run
 

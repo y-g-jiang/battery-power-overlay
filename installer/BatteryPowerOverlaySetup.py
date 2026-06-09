@@ -32,6 +32,17 @@ def install_dir() -> Path:
     return Path(local_appdata) / APP_NAME
 
 
+def ensure_install_dir_is_safe(path: Path) -> Path:
+    local_appdata = os.environ.get("LOCALAPPDATA")
+    if not local_appdata:
+        raise RuntimeError("LOCALAPPDATA is not set")
+    base = Path(local_appdata).resolve()
+    target = path.resolve()
+    if target == base or base not in target.parents or target.name != APP_NAME:
+        raise RuntimeError(f"Refusing to remove unexpected install path: {target}")
+    return target
+
+
 def copy_payload(src: Path, dst: Path) -> None:
     dst.mkdir(parents=True, exist_ok=True)
     (dst / "BatteryInfoView").mkdir(parents=True, exist_ok=True)
@@ -67,6 +78,24 @@ def register_startup(exe: Path) -> None:
         winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, command)
 
 
+def unregister_startup() -> None:
+    if winreg is None:
+        return
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Run",
+            0,
+            winreg.KEY_SET_VALUE,
+        ) as key:
+            try:
+                winreg.DeleteValue(key, APP_NAME)
+            except FileNotFoundError:
+                pass
+    except FileNotFoundError:
+        pass
+
+
 def stop_existing() -> None:
     creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
     subprocess.run(
@@ -77,6 +106,18 @@ def stop_existing() -> None:
         check=False,
         creationflags=creationflags,
     )
+
+
+def remove_previous_install(target: Path) -> None:
+    safe_target = ensure_install_dir_is_safe(target)
+    if safe_target.exists():
+        shutil.rmtree(safe_target)
+
+
+def uninstall_previous(target: Path) -> None:
+    stop_existing()
+    unregister_startup()
+    remove_previous_install(target)
 
 
 def launch_overlay(exe: Path) -> None:
@@ -95,12 +136,11 @@ def main() -> int:
     root.withdraw()
     try:
         target = install_dir()
-        stop_existing()
+        uninstall_previous(target)
         copy_payload(resource_root(), target)
         exe = target / "battery_power_overlay.exe"
         register_startup(exe)
         launch_overlay(exe)
-        messagebox.showinfo(DISPLAY_NAME, f"Installed to:\n{target}")
         return 0
     except Exception as exc:
         messagebox.showerror(DISPLAY_NAME, f"Installation failed:\n{exc}")
